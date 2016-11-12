@@ -1,92 +1,173 @@
 "use strict";
 
-let todoCtr = 0;
-let editMode = false;
-const addBtnText = "Add TODO!";
+
+let apiKeys = {};
+let uid = "";
+
+function putTodoInDOM() {
+  FbAPI.getTodos(apiKeys, uid).then(function (items) {
+    $('#completed-tasks').html("");
+    $('#incomplete-tasks').html("");
+    items.map((item)=>{
+      if(item.isCompleted === true){
+          let newListItem = `<li data-completed="${item.isCompleted}">`;
+          newListItem+=`<div class="col-xs-8" data-fbid="${item.id}">`;
+          newListItem+='<input class="checkboxStyle" type="checkbox" checked>';
+          newListItem+=`<label class="inputLabel">${item.task}</label>`;
+          newListItem+='<input type="text" class="inputTask">';
+          newListItem+='</div>';
+          newListItem+='</li>';
+          //apend to list
+          $('#completed-tasks').append(newListItem);
+        } else {
+          let newListItem = `<li data-completed="${item.isCompleted}">`;
+          newListItem+=`<div class="col-xs-8" data-fbid="${item.id}">`;
+          newListItem+='<input class="checkboxStyle" type="checkbox">';
+          newListItem+=`<label class="inputLabel">${item.task}</label>`;
+          newListItem+='<input type="text" class="inputTask">';
+          newListItem+='</div>';
+          newListItem+='<div class="col-xs-4">';
+          newListItem+=`<button class="btn btn-default col-xs-6 edit" data-fbid="${item.id}">Edit</button>`;
+          newListItem+=`<button class="btn btn-danger col-xs-6 delete" data-fbid="${item.id}">Delete</button> `;
+          newListItem+='</div>';
+          newListItem+='</li>';
+          //apend to list
+          $('#incomplete-tasks').append(newListItem);
+        }
+    });
+  });
+}
+
+function createLogoutButton() {
+  FbAPI.getUser(apiKeys, uid).then(function (userResponse) {
+    $('#logout-container').html('');
+    let currentUsername = userResponse.username;
+    let logoutButton = `<button class="btn btn-danger" id="logoutButton">Logout ${currentUsername}</button>`;
+    $('#logout-container').append(logoutButton);
+  });
+}
 
 $(document).ready(function() {
-  const $todoBtn = $("#todo-add");
-  const $todoInput = $("#todo-input");
-  const $todoList = $("#todo-list");
-  const $completedList = $("#completed-list");
 
-  let selectedTODO = null;
+  FbAPI.firebaseCredentials().then(function (keys) {
+    console.log("keys", keys);
+    apiKeys = keys;
+    firebase.initializeApp(apiKeys);
+  });
 
-  $todoInput.keyup(function(e){
-    if(e.keyCode == 13)
-    {
-        $todoBtn.trigger("click");
+  $('#add-todo-button').on('click', function () {
+    let newItem = {
+      "uid": uid,
+      "task": $('#add-todo-text').val(),
+      "isCompleted": false
+    };
+
+    FbAPI.addTodo(apiKeys, newItem).then(function () {
+      putTodoInDOM();
+    });
+  });
+
+  $("ul").on('click', '.delete', function () {
+    let itemId = $(this).data("fbid");
+    FbAPI.deleteTodo(apiKeys, itemId).then(function () {
+      putTodoInDOM();
+    });
+  });
+
+  $("ul").on('click', '.edit', function () {
+    let itemId = $(this).data("fbid");
+    let parent = $(this).closest("li");
+    if(!parent.hasClass("editMode")){
+      parent.addClass("editMode");
+    }else{
+      let editedItem = {
+        "uid": uid,
+        "task": parent.find(".inputTask").val(),
+        "isCompleted": false
+      };
+
+      FbAPI.editTodo(apiKeys, itemId, editedItem).then(function (response) {
+        parent.removeClass("editMode");
+        console.log(response);
+        putTodoInDOM();
+      });
     }
-});
-  $todoBtn.click(() => {
-    if ($todoInput.val()) {
-      if(editMode){
-        $(`#${selectedTODO}`).children('span').text($todoInput.val());
-        editMode = false;
-        selectedTODO = null;
-        $todoInput.val("");
-        $todoBtn.text(addBtnText);
-      }else{
-        createTODO($todoInput.val());
+  });
+
+  $("ul").on('change', 'input[type="checkbox"]', function () {
+    let updatedIsCompleted = $(this).closest("li").data("completed");
+    let itemId = $(this).parent().data("fbid");
+    let task  = $(this).siblings(".inputLabel").html();
+    let editedItem = {
+      "uid": uid,
+      "task": task,
+      "isCompleted": !updatedIsCompleted
+    };
+
+    FbAPI.editTodo(apiKeys, itemId, editedItem).then(
+      function () {
+        putTodoInDOM();
       }
-    }
+    );
   });
 
-  $(document).on('click', '.edit-todo', function(){
-    editTODO($(this));
+  $('#registerButton').on('click', function () {
+    let email = $('#inputEmail').val();
+    let password = $('#inputPassword').val();
+    let username = $('#inputUsername').val();
+    let user = {
+      email: email,
+      password: password
+    };
+    FbAPI.registerUser(user).then(function (registerResponse) {
+      console.log('registerResponse', registerResponse);
+      let newUser = {
+        username,
+        uid: registerResponse.uid
+      };
+      return FbAPI.addUser(apiKeys, newUser);
+    })
+    .then(function (userResponse) {
+      return FbAPI.loginUser(user);
+    })
+    .then(function (loginResponse) {
+      console.log("login response", loginResponse);
+      uid = loginResponse.uid;
+      createLogoutButton();
+      putTodoInDOM();
+      $('#login-container').addClass('hide');
+      $('#todo-container').removeClass('hide');
+    });
   });
 
-  $(document).on('click', '.delete-todo', function(){
-      $(this).closest('div').fadeOut(300, function() { $(this).remove(); });
-      selectedTODO = null;
-      $todoInput.val("");
+  $('#loginButton').on('click', function () {
+    let email = $('#inputEmail').val();
+    let password = $('#inputPassword').val();
+    let user = {
+      email: email,
+      password: password
+    };
+
+    FbAPI.loginUser(user).then(function (loginResponse) {
+      console.log('loginResponse', loginResponse);
+      uid = loginResponse.uid;
+      createLogoutButton();
+      putTodoInDOM();
+      $('#login-container').addClass('hide');
+      $('#todo-container').removeClass('hide');
+    });
   });
 
-  $(document).on('change', 'input[type=checkbox]', function(){
-      $todoInput.val("");
-      $todoBtn.text(addBtnText);
-      if($(this).is(":checked")){
-        completeTODO($(this));
-        return;
-      }
-      uncompleteTODO($(this));
+  $("#logout-container").on('click', '#logoutButton', function () {
+    FbAPI.logoutUser();
+    uid ="";
+    $('#incomplete-tasks').html('');
+    $('#completed-tasks').html('');
+    $('#inputEmail').val('');
+    $('#inputPassword').val('');
+    $('#inputUsername').val('');
+    $('#login-container').removeClass('hide');
+    $('#todo-container').addClass('hide');
   });
 
-  function createTODO(newTodo) {
-    todoCtr++;
-    $todoList.append(`
-      <div id="todo-${todoCtr}" class="todo clearfix">
-        <input type="checkbox">
-        <span>${newTodo}</span>
-        <button class="btn btn-danger btn-sm delete-todo pull-right">delete</button>
-        <button type="button" class="btn btn-secondary btn-sm edit-todo pull-right">edit</button>
-      </div>
-      `);
-    $todoInput.val("");
-  }
-
-  function editTODO(el) {
-    editMode = true;
-    selectedTODO = el.parent().attr('id');
-    let todoText = el.parent().children('span').text();
-    $todoInput.val(todoText.trim());
-    $todoInput.focus();
-    $todoBtn.text("Submit");
-  }
-
-  function completeTODO(el) {
-    $completedList.append(el.parent());
-    el.parent().hide().fadeIn(500);
-    selectedTODO = el.parent().attr('id');
-    el.siblings('span').addClass('strike-through');
-    el.siblings('button').hide();
-  }
-
-  function uncompleteTODO(el) {
-    $todoList.append(el.parent());
-    el.parent().hide().fadeIn(500);
-    selectedTODO = el.parent().attr('id');
-    el.siblings('span').removeClass('strike-through');
-    el.siblings('button').show();
-  }
 });
